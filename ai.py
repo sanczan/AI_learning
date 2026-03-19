@@ -4,13 +4,14 @@ from stable_baselines3.common.callbacks import BaseCallback
 import pygame
 import matplotlib.pyplot as plt
 import time
+import math
 
-cycles_total = 160
-breakthrough_cycle = 40
+cycles_total = 260
+breakthrough_cycle = 20
 
 # Zmienne do ewaluacji czasu
-total_eval_episodes = 3
-max_eval_time = 5
+total_eval_episodes = 2
+max_eval_time = 15
 
 # Marchewki i kije
 class AntiCheatingWrapper(gym.Wrapper):
@@ -50,10 +51,11 @@ class AntiCheatingWrapper(gym.Wrapper):
         if self.tilted_frames >= self.max_tilted_steps * 3:
             terminated = True
 
-        # Kara za oddalenie się od centrum toru
-        # Wózek porusza się zwykle w przedziale od -2.4 do 2.4. Centrum to 0.0.
-        # Obliczamy dystans od zera i mnożymy przez wagę kary.
-        distance_from_center = abs(cart_position)
+        # Kara za oddalenie się od centrum toru dla czubku kija
+        pole_length = self.env.unwrapped.length * 2  # standardowy 'length' w CartPole to połowa rzeczywistej długości wizualnej kija
+        tip_position = cart_position + pole_length * math.sin(pole_angle)
+        
+        distance_from_center = abs(tip_position)
         position_penalty = distance_from_center * self.position_weight
         
         # Odejmujemy karę od standardowej nagrody (+1.0 za przetrwaną klatkę)
@@ -117,14 +119,18 @@ def run_experiment():
         if global_abort: break
 
         # Środowisko treningowe BEZ renderowania
-        train_env = gym.make("CartPole-v1", render_mode=None)
+        train_env = gym.make("CartPole-v1", render_mode=None, max_episode_steps=int(max_eval_time * 50))
         
         # Zmiana fizycznych właściwości środowiska
         train_env.unwrapped.length = length
         train_env.unwrapped.polemass_length = train_env.unwrapped.masspole * length
         
+        # Zeskalowane parametry karania, by były adekwatne do długości drążka
+        scaled_tilted_steps = int(max(10, 25 * length))
+        scaled_pos_weight = 0.6 / max(1.0, length)
+        
         # Owinięcie środowiska naszym własnym algorytmem karania!
-        wrapped_env = AntiCheatingWrapper(train_env, angle_threshold=0.12, max_tilted_steps=15, penalty=1.0)
+        wrapped_env = AntiCheatingWrapper(train_env, angle_threshold=0.12, max_tilted_steps=scaled_tilted_steps, penalty=1.0, position_weight=scaled_pos_weight)
         
         wrapped_env.reset()
         
@@ -160,10 +166,14 @@ def run_experiment():
             current_cycle += breakthrough_cycle
             
             # Ewaluacja modelu w środowisku z renderowaniem, by zobaczyć postępy i zebrać dane do wykresu
-            eval_env = gym.make("CartPole-v1", render_mode="human")
+            eval_env = gym.make("CartPole-v1", render_mode="human", max_episode_steps=int(max_eval_time * 50))
             eval_env.unwrapped.length = length
             eval_env.unwrapped.polemass_length = eval_env.unwrapped.masspole * length
-            eval_wrapped = AntiCheatingWrapper(eval_env, angle_threshold=0.12, max_tilted_steps=15, penalty=1.0)
+            
+            # Use the same scaled parameters for evaluation
+            scaled_tilted_steps = int(max(10, 25 * length))
+            scaled_pos_weight = 0.6 / max(1.0, length)
+            eval_wrapped = AntiCheatingWrapper(eval_env, angle_threshold=0.12, max_tilted_steps=scaled_tilted_steps, penalty=1.0, position_weight=scaled_pos_weight)
             
             if not pygame.get_init():
                 pygame.init()
@@ -211,13 +221,22 @@ def run_experiment():
                     global_abort = True
                     break
                     
-            eval_wrapped.close() # Zamykamy środowisko wizualne, by powrócić do super-szybkiego treningu
+            eval_wrapped.close()
             
             if global_abort:
                 break
                 
             avg_score = total_score / total_eval_episodes
             length_scores.append(avg_score)
+            
+            # Jeśli pole osiągnie max wynik, przerywamy trening i wypełniamy resztę wykresu
+            max_possible_score = max_eval_time * 50
+            if avg_score >= max_possible_score * 0.95:
+                print(f"Długość {length} została wytrenowana.")
+                while current_cycle < cycles_total:
+                    length_scores.append(max_possible_score)
+                    current_cycle += breakthrough_cycle
+                break
             
         if len(length_scores) > 0:
             results[length] = length_scores
@@ -241,7 +260,7 @@ def run_experiment():
     plt.title(f'AI Learning Progression per {breakthrough_cycle} Cycles')
     plt.legend()
     plt.grid(True, alpha=0.3)
-    plt.ylim(0, 520)
+    plt.ylim(0, int(max_eval_time * 50) + 20)
     plt.show()
 
 if __name__ == "__main__":
