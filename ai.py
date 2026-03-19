@@ -5,12 +5,12 @@ import pygame
 import matplotlib.pyplot as plt
 import time
 
-cycles_total = 300
-breakthrough_cycle = 50
+cycles_total = 160
+breakthrough_cycle = 40
 
 # Zmienne do ewaluacji czasu
-total_eval_episodes = 6
-max_eval_time = 10.0
+total_eval_episodes = 3
+max_eval_time = 5
 
 # Marchewki i kije
 class AntiCheatingWrapper(gym.Wrapper):
@@ -199,7 +199,7 @@ def run_experiment():
                 screen = pygame.display.get_surface()
                 if screen:
                     text1 = watch_font.render(f"Testing {exp_name} @ Phase {current_cycle}/{cycles_total}", True, (0, 200, 255))
-                    text2 = watch_font.render(f"Eval Episode {episodes_tested+1}/{total_eval_episodes} (Max 5s)", True, (50, 200, 50))
+                    text2 = watch_font.render(f"Eval Episode {episodes_tested+1}/{total_eval_episodes} (Max {max_eval_time}s)", True, (50, 200, 50))
                     text3 = watch_font.render(f"Time: {time_elapsed:.1f}s", True, (200, 200, 200))
                     screen.blit(text1, (20, 20))
                     screen.blit(text2, (20, 60))
